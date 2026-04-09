@@ -425,6 +425,11 @@ import {
   getBaseUrl as getBaseUrlUtil,
   getCustomModelName
 } from './utils/apiConfig'
+import {
+  extractApiType,
+  isConfiguredApiKey,
+  shouldAttachApiKey
+} from './utils/requestAuth'
 
 // —— session id 隔离 ——
 function getOrCreateSessionId() {
@@ -502,13 +507,9 @@ axios.interceptors.request.use(config => {
   
   // 已移除认证体系，不再添加 Authorization header
   
-  // 根据请求中的api_type判断需要哪个API key
-  // 如果是FormData，从formData中获取api_type
-  let apiType = 'gemini'
-  if (config.data instanceof FormData) {
-    apiType = config.data.get('api_type') || 'gemini'
-  } else if (config.params && config.params.api_type) {
-    apiType = config.params.api_type
+  const apiType = extractApiType(config)
+  if (!shouldAttachApiKey(config)) {
+    return config
   }
   
   console.log('[API Debug] apiType:', apiType)
@@ -517,7 +518,7 @@ axios.interceptors.request.use(config => {
   console.log('[API Debug] apiKey for', apiType, ':', apiKey ? '存在' : '不存在')
   
   // 必须提供API key，不再使用服务器配置
-  if (!apiKey || !apiKey.trim() || apiKey.trim() === 'your_gemini_api_key_here' || apiKey.trim() === 'your_doubao_api_key_here' || apiKey.trim() === 'your_sora_api_key_here') {
+  if (!isConfiguredApiKey(apiKey)) {
     const apiName = apiType === 'gemini' ? 'Gemini' : apiType === 'sora' ? 'Sora' : '豆包'
     console.error(`[API Debug] ${apiName} API Key 未配置或无效`)
     ElMessage.error(`请先配置 ${apiName} API Key 才能使用`)
