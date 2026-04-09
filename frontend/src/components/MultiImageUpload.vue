@@ -3,7 +3,7 @@
     <!-- 上传区域 -->
     <div class="upload-area" @click="triggerUpload" @dragover.prevent @drop.prevent="handleDrop">
       <el-icon class="upload-icon"><Upload /></el-icon>
-      <span class="upload-text">Upload Images</span>
+      <span class="upload-text">{{ uploadText }}</span>
     </div>
     
     <!-- 文件列表 -->
@@ -15,10 +15,21 @@
       >
         <div class="file-thumbnail">
           <el-image
+            v-if="previewMode === 'image'"
             :src="file.previewUrl"
             fit="cover"
             class="thumbnail-image"
           />
+          <video
+            v-else-if="previewMode === 'video'"
+            :src="file.previewUrl"
+            class="thumbnail-video"
+            muted
+            controls
+          ></video>
+          <div v-else class="thumbnail-placeholder">
+            <el-icon><Document /></el-icon>
+          </div>
         </div>
         <span class="filename">{{ file.name }}</span>
         <el-icon class="delete-icon" @click="removeFile(index)"><Close /></el-icon>
@@ -30,7 +41,7 @@
       ref="fileInput"
       type="file"
       multiple
-      accept="image/*"
+      :accept="accept"
       @change="handleFileChange"
       style="display: none"
     />
@@ -39,7 +50,7 @@
 
 <script>
 import { ref, watch } from 'vue'
-import { Upload, Close } from '@element-plus/icons-vue'
+import { Upload, Close, Document } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 
 export default {
@@ -48,12 +59,29 @@ export default {
     files: {
       type: Array,
       default: () => []
+    },
+    accept: {
+      type: String,
+      default: 'image/*'
+    },
+    uploadText: {
+      type: String,
+      default: 'Upload Images'
+    },
+    previewMode: {
+      type: String,
+      default: 'image'
+    },
+    maxCount: {
+      type: Number,
+      default: 99
     }
   },
   emits: ['files-change'],
   components: {
     Upload,
-    Close
+    Close,
+    Document
   },
   setup(props, { emit }) {
     const files = ref([...props.files])
@@ -77,6 +105,10 @@ export default {
 
     const addFiles = (newFiles) => {
       newFiles.forEach(newFile => {
+        if (files.value.length >= props.maxCount) {
+          ElMessage.warning(`最多上传 ${props.maxCount} 个文件`)
+          return
+        }
         // 检查是否已存在相同文件
         const exists = files.value.some(f => f.name === newFile.name && f.size === newFile.size)
         if (exists) {
@@ -211,6 +243,22 @@ export default {
 .thumbnail-image {
   width: 100%;
   height: 100%;
+}
+
+.thumbnail-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.thumbnail-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #666666;
+  background: #f5f5f5;
 }
 
 .filename {

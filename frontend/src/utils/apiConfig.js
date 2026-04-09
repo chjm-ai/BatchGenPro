@@ -15,6 +15,18 @@ export const MODEL_API_MAPPING = {
   'doubao-seedream-4-0-250828': {
     apiType: 'doubao',
     displayName: '豆包 Seedream 4.0'
+  },
+  'sora-2': {
+    apiType: 'sora',
+    displayName: 'Sora 2'
+  },
+  'doubao-seedance-2-0-260128': {
+    apiType: 'doubao',
+    displayName: '豆包 Seedance 2.0'
+  },
+  'doubao-seedance-2-0-fast-260128': {
+    apiType: 'doubao',
+    displayName: '豆包 Seedance 2.0 Fast'
   }
 }
 
@@ -155,14 +167,16 @@ export function migrateOldDataFormat() {
   if (isApiConfigInitialized()) {
     return
   }
-  
+
   try {
     // 读取旧格式数据
     const geminiApiKey = localStorage.getItem('gemini_api_key')
     const geminiBaseUrl = localStorage.getItem('gemini_base_url')
     const doubaoApiKey = localStorage.getItem('doubao_api_key')
     const doubaoBaseUrl = localStorage.getItem('doubao_base_url')
-    
+    const soraApiKey = localStorage.getItem('sora_api_key')
+    const soraBaseUrl = localStorage.getItem('sora_base_url')
+
     // 迁移Gemini配置
     if (geminiApiKey || geminiBaseUrl) {
       const geminiConfig = {
@@ -173,7 +187,7 @@ export function migrateOldDataFormat() {
       }
       saveApiConfig('gemini', geminiConfig)
     }
-    
+
     // 迁移豆包配置
     if (doubaoApiKey || doubaoBaseUrl) {
       const doubaoConfig = {
@@ -184,9 +198,20 @@ export function migrateOldDataFormat() {
       }
       saveApiConfig('doubao', doubaoConfig)
     }
-    
+
+    // 迁移Sora配置
+    if (soraApiKey || soraBaseUrl) {
+      const soraConfig = {
+        type: soraBaseUrl ? 'third_party' : 'official',
+        api_key: soraApiKey || '',
+        base_url: soraBaseUrl || '',
+        configured: !!(soraApiKey || soraBaseUrl)
+      }
+      saveApiConfig('sora', soraConfig)
+    }
+
     // 如果至少有一个API配置，标记为已初始化
-    if (geminiApiKey || geminiBaseUrl || doubaoApiKey || doubaoBaseUrl) {
+    if (geminiApiKey || geminiBaseUrl || doubaoApiKey || doubaoBaseUrl || soraApiKey || soraBaseUrl) {
       localStorage.setItem('api_config_initialized', 'true')
     }
   } catch (error) {
@@ -243,4 +268,3 @@ export function getCustomModelName(apiType, defaultModelName) {
   }
   return defaultModelName
 }
-

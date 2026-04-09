@@ -5,6 +5,7 @@ import os
 import uuid
 import sys
 import redis
+import base64
 from google import genai
 from PIL import Image
 import io
@@ -24,6 +25,8 @@ RESULT_FOLDER = os.getenv('RESULT_FOLDER', 'results')
 MAX_FILE_SIZE = int(os.getenv('MAX_FILE_SIZE', 10 * 1024 * 1024))  # 默认10MB
 ALLOWED_EXTENSIONS = set(os.getenv('ALLOWED_EXTENSIONS', 'png,jpg,jpeg,gif,webp').split(','))
 SUPPORTED_APIS = os.getenv('SUPPORTED_APIS', 'gemini,doubao').split(',')
+VIDEO_ALLOWED_EXTENSIONS = {'mp4', 'mov'}
+AUDIO_ALLOWED_EXTENSIONS = {'mp3', 'wav'}
 
 # V2阶段：导入批量任务相关模块
 from task_manager import task_manager, TaskStatus
@@ -48,6 +51,67 @@ os.makedirs(RESULT_FOLDER, exist_ok=True)
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+def allowed_media_file(filename, allowed_extensions):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in allowed_extensions
+
+
+def parse_bool_form_value(value, default=False):
+    if value is None:
+        return default
+    return str(value).strip().lower() in {'1', 'true', 'yes', 'on'}
+
+
+def save_uploaded_media_files(field_name, allowed_extensions, multiple=True):
+    """保存上传媒体并返回可访问 URL 列表"""
+    if multiple:
+        files = request.files.getlist(field_name)
+    else:
+        single_file = request.files.get(field_name)
+        files = [single_file] if single_file else []
+
+    saved_urls = []
+    for file in files:
+        if not file or not file.filename:
+            continue
+        if not allowed_media_file(file.filename, allowed_extensions):
+            continue
+
+        filename = secure_filename(file.filename)
+        file_id = str(uuid.uuid4())
+        new_filename = f"{file_id}_{filename}"
+        file_path = os.path.join(UPLOAD_FOLDER, new_filename)
+        file.save(file_path)
+
+        host = request.host_url.rstrip('/')
+        saved_urls.append(f"{host}/static/uploads/{new_filename}")
+
+    return saved_urls
+
+
+def encode_uploaded_files_as_data_urls(field_name, allowed_extensions, mime_prefix, multiple=True):
+    """将上传文件编码为 data URL，适合图片和音频直传模型"""
+    if multiple:
+        files = request.files.getlist(field_name)
+    else:
+        single_file = request.files.get(field_name)
+        files = [single_file] if single_file else []
+
+    encoded_values = []
+    for file in files:
+        if not file or not file.filename:
+            continue
+        if not allowed_media_file(file.filename, allowed_extensions):
+            continue
+
+        extension = file.filename.rsplit('.', 1)[1].lower()
+        file_bytes = file.read()
+        file.seek(0)
+        encoded = base64.b64encode(file_bytes).decode('utf-8')
+        encoded_values.append(f"data:{mime_prefix}/{extension};base64,{encoded}")
+
+    return encoded_values
 
 def generate_image_with_gemini(image_path, prompt, api_key=None):
     """使用Gemini API生成图片（已废弃，现在使用AIImageGenerator）"""
@@ -175,6 +239,9 @@ def get_base_url_from_request(api_type="gemini"):
     elif api_type == "doubao":
         header_name = 'X-Doubao-Base-URL'
         form_key = 'doubao_base_url'
+    elif api_type == "sora":
+        header_name = 'X-Sora-Base-URL'
+        form_key = 'sora_base_url'
     else:
         return None
     
@@ -605,6 +672,154 @@ def get_batch_task_status(task_id):
     except Exception as e:
         app.logger.error(f"Get batch task status error: {str(e)}")
         return jsonify({'success': False, 'error': f'获取任务状态失败: {str(e)}'}), 500
+
+@app.route('/api/batch/generate-video', methods=['POST'])
+def create_video_generate_task():
+    """创建视频生成任务"""
+    import time
+    request_time = time.strftime('%Y-%m-%d %H:%M:%S')
+    print(f"\n[{request_time}] ========== 收到视频生成请求 ==========")
+
+    session_id = get_session_id_or_abort()
+    if not session_id:
+        return jsonify({'error': '缺少 Session-ID'}), 400
+
+    # 获取API key（必须提供）
+    try:
+        api_key, api_type = get_api_key_from_request()
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+    try:
+        prompt = request.form.get('prompt', '')
+        api_type = request.form.get('api_type', 'doubao')
+        model_name = request.form.get('model_name', 'doubao-seedance-2-0-260128')
+        duration = request.form.get('duration', type=int)
+        video_mode = request.form.get('video_mode', 'text')
+        resolution = request.form.get('resolution') or '720p'
+        ratio = request.form.get('ratio') or 'adaptive'
+        seed = request.form.get('seed', type=int)
+        watermark = parse_bool_form_value(request.form.get('watermark'), default=False)
+        generate_audio = parse_bool_form_value(request.form.get('generate_audio'), default=True)
+        video_options = {
+            'resolution': resolution,
+            'ratio': ratio,
+            'duration': duration,
+            'seed': seed,
+            'watermark': watermark,
+            'generate_audio': generate_audio
+        }
+
+        print(f"  请求参数:")
+        print(f"    session_id: {session_id}")
+        print(f"    api_type: {api_type}")
+        print(f"    model_name: {model_name}")
+        print(f"    video_mode: {video_mode}")
+        print(f"    duration: {duration}")
+        print(f"    prompt: {prompt[:50]}...")
+
+        if api_type not in SUPPORTED_APIS:
+            return jsonify({'error': f'Unsupported API type: {api_type}'}), 400
+
+        legacy_image_urls = encode_uploaded_files_as_data_urls('files', ALLOWED_EXTENSIONS, 'image', multiple=True)
+        first_frame_urls = encode_uploaded_files_as_data_urls('first_frame_file', ALLOWED_EXTENSIONS, 'image', multiple=False)
+        last_frame_urls = encode_uploaded_files_as_data_urls('last_frame_file', ALLOWED_EXTENSIONS, 'image', multiple=False)
+        reference_image_urls = encode_uploaded_files_as_data_urls('reference_image_files', ALLOWED_EXTENSIONS, 'image', multiple=True)
+        reference_video_urls = save_uploaded_media_files('reference_video_files', VIDEO_ALLOWED_EXTENSIONS, multiple=True)
+        reference_audio_urls = encode_uploaded_files_as_data_urls('reference_audio_files', AUDIO_ALLOWED_EXTENSIONS, 'audio', multiple=True)
+
+        if legacy_image_urls and not reference_image_urls and video_mode in {'text', 'multimodal'}:
+            reference_image_urls = legacy_image_urls
+
+        media_inputs = {
+            'mode': video_mode,
+            'images': reference_image_urls,
+            'videos': reference_video_urls,
+            'audios': reference_audio_urls,
+            'first_frame': first_frame_urls[0] if first_frame_urls else None,
+            'last_frame': last_frame_urls[0] if last_frame_urls else None,
+        }
+
+        if video_mode == 'first_frame' and not media_inputs['first_frame'] and reference_image_urls:
+            media_inputs['first_frame'] = reference_image_urls[0]
+        if video_mode == 'first_last_frame':
+            if not media_inputs['first_frame'] and len(reference_image_urls) >= 1:
+                media_inputs['first_frame'] = reference_image_urls[0]
+            if not media_inputs['last_frame'] and len(reference_image_urls) >= 2:
+                media_inputs['last_frame'] = reference_image_urls[1]
+
+        if video_mode == 'first_frame' and not media_inputs['first_frame']:
+            return jsonify({'success': False, 'error': '首帧生视频需要上传 1 张首帧图片'}), 400
+        if video_mode == 'first_last_frame' and (not media_inputs['first_frame'] or not media_inputs['last_frame']):
+            return jsonify({'success': False, 'error': '首尾帧生视频需要上传首帧和尾帧图片'}), 400
+        if video_mode == 'multimodal' and not (
+            media_inputs['images'] or media_inputs['videos'] or media_inputs['first_frame']
+        ) and not prompt.strip():
+            return jsonify({'success': False, 'error': '多模态参考至少需要提示词或参考素材'}), 400
+        if media_inputs['audios'] and not (media_inputs['images'] or media_inputs['videos']):
+            return jsonify({'success': False, 'error': '不能单独上传音频，至少需要参考图片或参考视频'}), 400
+        if not prompt.strip() and not (
+            media_inputs['first_frame'] or media_inputs['last_frame'] or media_inputs['images'] or media_inputs['videos']
+        ):
+            return jsonify({'success': False, 'error': '请输入视频描述或上传参考素材'}), 400
+
+        # 创建任务数据（视频生成只生成1个）
+        images_data = [{'filename': 'video_1.mp4', 'is_video': True}]
+
+        # 创建批量任务
+        task_id, task_data = task_manager.create_task(session_id, images_data, prompt, api_type)
+
+        # 添加items字段
+        task_data['items'] = [{
+            'index': 0,
+            'prompt': prompt,
+            'status': 'pending',
+            'is_video': True
+        }]
+
+        # 更新任务状态为处理中
+        task_manager.update_task_status(session_id, task_id, TaskStatus.PROCESSING, items=task_data['items'])
+
+        # 获取 base_url 配置
+        base_url = get_base_url_from_request(api_type)
+        print(f"    base_url: {base_url}")
+
+        # 同步处理视频生成
+        try:
+            print(f"  开始处理视频生成任务...")
+            from tasks import process_video_generate_sync
+            result = process_video_generate_sync(
+                session_id,
+                task_id,
+                media_inputs,
+                prompt,
+                api_type,
+                api_key,
+                model_name,
+                base_url,
+                duration,
+                video_options
+            )
+            print(f"  处理结果: success={result.get('success')}")
+
+            if result['success']:
+                task_manager.update_task_status(session_id, task_id, TaskStatus.COMPLETED)
+            else:
+                task_manager.update_task_status(session_id, task_id, TaskStatus.FAILED)
+        except Exception as e:
+            app.logger.error(f"Video generation processing error: {str(e)}")
+            task_manager.update_task_status(session_id, task_id, TaskStatus.FAILED)
+
+        return jsonify({
+            'success': True,
+            'task_id': task_id,
+            'message': '视频生成任务已创建',
+            'task_data': task_data
+        })
+
+    except Exception as e:
+        app.logger.error(f"Create video generate task error: {str(e)}")
+        return jsonify({'success': False, 'error': f'创建任务失败: {str(e)}'}), 500
 
 @app.route('/api/batch/tasks/<task_id>', methods=['DELETE'])
 def cancel_batch_task(task_id):

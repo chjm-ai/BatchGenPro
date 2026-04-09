@@ -64,8 +64,14 @@
         <!-- 生成结果 -->
         <div class="result-section">
           <span class="result-label">生成结果：</span>
+          <video
+            v-if="item.generated_url && item.is_video"
+            :src="item.generated_url"
+            class="generated-video"
+            controls
+          ></video>
           <el-image
-            v-if="item.generated_url"
+            v-else-if="item.generated_url"
             :src="item.generated_url"
             :preview-src-list="[item.generated_url]"
             fit="cover"
@@ -80,15 +86,26 @@
           </el-image>
           <div v-else class="image-placeholder">
             <el-icon><Loading /></el-icon>
-            <span>{{ item.status === 'pending' ? '待开始' : item.status === 'processing' ? '生成中...' : '无图片' }}</span>
+            <span>{{ item.status === 'pending' ? '待开始' : item.status === 'processing' ? '生成中...' : '无结果' }}</span>
           </div>
+        </div>
+
+        <div v-if="item.last_frame_url" class="result-section">
+          <span class="result-label">尾帧：</span>
+          <el-image
+            :src="item.last_frame_url"
+            :preview-src-list="[item.last_frame_url]"
+            fit="cover"
+            class="generated-image"
+            lazy
+          />
         </div>
         
         <!-- 下载按钮 -->
         <div v-if="item.generated_url" class="task-actions">
           <el-button 
             size="small" 
-            @click="downloadSingleImage(item.generated_url, item.filename)"
+            @click="downloadSingleResult(item.generated_url, item.filename)"
             icon="Download"
           >
             下载
@@ -181,6 +198,8 @@ export default {
                     if (result.filename) {
                       currentTask.value.items[index].filename = result.filename
                     }
+                    currentTask.value.items[index].is_video = !!result.is_video
+                    currentTask.value.items[index].last_frame_url = result.last_frame_url || null
                     // 失败项弹出错误信息（仅提示一次）
                     if (result.error) {
                       const key = `${currentTask.value.task_id || 'task'}:${result.filename || index}`
@@ -276,11 +295,11 @@ export default {
           // 从 results.generated_images 中下载
           if (results.generated_images && results.generated_images.length > 0) {
             for (let i = 0; i < results.generated_images.length; i++) {
-              const imageInfo = results.generated_images[i]
-              if (imageInfo.generated_url) {
+              const resultInfo = results.generated_images[i]
+              if (resultInfo.generated_url) {
                 const link = document.createElement('a')
-                link.href = imageInfo.generated_url
-                link.download = imageInfo.generated_filename || `generated_${task.task_id.substring(0, 8)}_${i + 1}.png`
+                link.href = resultInfo.generated_url
+                link.download = resultInfo.generated_filename || resultInfo.filename || `generated_${task.task_id.substring(0, 8)}_${i + 1}`
                 document.body.appendChild(link)
                 link.click()
                 document.body.removeChild(link)
@@ -290,9 +309,9 @@ export default {
           }
           
           if (downloadCount > 0) {
-            ElMessage.success(`已开始下载 ${downloadCount} 张图片`)
+            ElMessage.success(`已开始下载 ${downloadCount} 个结果`)
           } else {
-            ElMessage.warning('没有可下载的图片')
+            ElMessage.warning('没有可下载的结果')
           }
         } else {
           ElMessage.error('获取结果失败')
@@ -303,16 +322,16 @@ export default {
       }
     }
 
-    // 下载单个图片
-    const downloadSingleImage = (imageUrl, filename) => {
+    // 下载单个结果
+    const downloadSingleResult = (resultUrl, filename) => {
       try {
         const link = document.createElement('a')
-        link.href = imageUrl
-        link.download = filename || 'generated_image.png'
+        link.href = resultUrl
+        link.download = filename || 'generated_result'
         document.body.appendChild(link)
         link.click()
         document.body.removeChild(link)
-        ElMessage.success('开始下载图片')
+        ElMessage.success('开始下载结果')
       } catch (error) {
         ElMessage.error('下载失败')
         console.error('下载失败:', error)
@@ -389,7 +408,9 @@ export default {
             prompt: item.prompt,
             generated_url: null,
             filename: null,
-            reference_image_url: item.reference_image_url || null  // 保留每个item的参考图
+            reference_image_url: item.reference_image_url || null,
+            is_video: !!item.is_video,
+            last_frame_url: null
           })
         })
         
@@ -400,6 +421,8 @@ export default {
               items[index].status = getItemStatus(result)
               items[index].generated_url = result.generated_url
               items[index].filename = result.filename
+              items[index].is_video = !!result.is_video
+              items[index].last_frame_url = result.last_frame_url || null
             }
           })
         }
@@ -415,7 +438,9 @@ export default {
             status: getItemStatus(result),
             prompt: result.prompt || currentTask.value.prompt,  // 优先使用result中的prompt
             generated_url: result.generated_url,
-            filename: result.filename
+            filename: result.filename,
+            is_video: !!result.is_video,
+            last_frame_url: result.last_frame_url || null
           })
         })
       } else {
@@ -426,7 +451,9 @@ export default {
             status: 'pending',
             prompt: currentTask.value.prompt,
             generated_url: null,
-            filename: null
+            filename: null,
+            is_video: false,
+            last_frame_url: null
           })
         }
       }
@@ -464,7 +491,7 @@ export default {
       refreshTasks,
       cancelTask,
       downloadResults,
-      downloadSingleImage,
+      downloadSingleResult,
       getTaskProgress,
       getStatusTagType,
       getStatusText,
@@ -643,6 +670,14 @@ export default {
   border-radius: 6px;
   overflow: hidden;
   background: #f5f5f5;
+  border: 1px solid #e0e0e0;
+}
+
+.generated-video {
+  width: 160px;
+  height: 90px;
+  border-radius: 6px;
+  background: #000000;
   border: 1px solid #e0e0e0;
 }
 

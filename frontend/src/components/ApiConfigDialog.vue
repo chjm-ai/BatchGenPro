@@ -28,8 +28,8 @@
           </div>
           
           <!-- 豆包 卡片 -->
-          <div 
-            class="model-card" 
+          <div
+            class="model-card"
             :class="{ 'selected': selectedModel === 'doubao' }"
             @click="selectedModel = 'doubao'"
           >
@@ -394,7 +394,7 @@ export default {
         if (selectedModel.value === 'gemini') {
           eventData.geminiApiKey = configToSave.api_key || null
           eventData.geminiBaseUrl = configToSave.base_url || null
-        } else {
+        } else if (selectedModel.value === 'doubao') {
           eventData.doubaoApiKey = configToSave.api_key || null
           eventData.doubaoBaseUrl = configToSave.base_url || null
         }

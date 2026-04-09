@@ -110,13 +110,20 @@ class BatchTaskManager:
                 if image["filename"] == image_filename:
                     if result["success"]:
                         image["status"] = TaskStatus.COMPLETED.value
-                        image["result_url"] = result.get("generated_image_url")
+                        result_url = result.get("generated_image_url") or result.get("generated_video_url")
+                        image["result_url"] = result_url
                         task_data["results"]["success_count"] += 1
                         generated_image = {
                             "filename": image_filename,
-                            "generated_url": result.get("generated_image_url"),
+                            "generated_url": result_url,
                             "generated_filename": result.get("generated_filename"),
-                            "prompt": result.get("prompt")
+                            "prompt": result.get("prompt"),
+                            "is_video": result.get("is_video", False),
+                            "last_frame_url": result.get("last_frame_url"),
+                            "resolution": result.get("resolution"),
+                            "ratio": result.get("ratio"),
+                            "duration": result.get("duration"),
+                            "generate_audio": result.get("generate_audio"),
                         }
                         task_data["results"]["generated_images"].append(generated_image)
                     else:
@@ -129,7 +136,8 @@ class BatchTaskManager:
                             "generated_url": None,
                             "generated_filename": None,
                             "error": result.get("error"),
-                            "prompt": result.get("prompt")
+                            "prompt": result.get("prompt"),
+                            "is_video": result.get("is_video", False)
                         }
                         task_data["results"]["generated_images"].append(failed_image_entry)
                     break

@@ -35,17 +35,20 @@
                 <div class="tab-item" :class="{ active: activeTab === 'edit' }" @click="activeTab = 'edit'">
                   <span>批量改图</span>
                 </div>
+                <div class="tab-item" :class="{ active: activeTab === 'video' }" @click="activeTab = 'video'">
+                  <span>视频生成</span>
+                </div>
               </div>
-              
+
               <p class="tab-description">
-                {{ activeTab === 'generate' ? '批量生图会用同一份提示词（可带参考图）重复生成多张图' : '批量改图会对多张图用同一份提示词来生图' }}
+                {{ activeTabDescription }}
               </p>
             </div>
             
-            <!-- 操作区域 -->
+              <!-- 操作区域 -->
             <div class="operation-section">
-              <!-- 大模型选择器 -->
-              <div class="form-group">
+              <!-- 大模型选择器（图片生成时显示） -->
+              <div class="form-group" v-if="activeTab !== 'video'">
                 <div class="model-selector-header">
                   <label class="form-label">大模型</label>
                   <el-button 
@@ -81,8 +84,8 @@
                 </el-select>
               </div>
               
-              <!-- Prompt输入 -->
-              <div class="form-group">
+              <!-- Prompt输入（仅在批量生图和批量改图时显示） -->
+              <div class="form-group" v-if="activeTab !== 'video'">
                 <label class="form-label">Prompt</label>
                 <el-input
                   v-model="batchPrompt"
@@ -157,11 +160,215 @@
                     <label class="form-label">参考图片</label>
                     <el-icon class="clear-icon" @click="clearAllImages"><RefreshLeft /></el-icon>
                   </div>
-                  
-                  <MultiImageUpload 
+
+                  <MultiImageUpload
                     v-model:files="uploadedFiles"
                     @files-change="handleBatchFileChange"
                   />
+                </div>
+              </template>
+
+              <!-- 视频生成 -->
+              <template v-if="activeTab === 'video'">
+                <!-- 大模型选择器 -->
+                <div class="form-group">
+                  <div class="model-selector-header">
+                    <label class="form-label">大模型</label>
+                    <el-button
+                      type="text"
+                      class="api-config-link"
+                      @click="showApiConfigDialog = true"
+                    >
+                      <el-icon><Setting /></el-icon>
+                      API Key 配置
+                    </el-button>
+                  </div>
+                  <el-select
+                    v-model="selectedVideoModel"
+                    class="model-selector"
+                    placeholder="选择视频模型"
+                    @change="handleVideoModelChange"
+                  >
+                    <el-option
+                      v-for="model in availableVideoModels"
+                      :key="model.value"
+                      :label="model.label"
+                      :value="model.value"
+                      :disabled="model.disabled"
+                    >
+                      <div class="model-option">
+                        <span>{{ model.label }}</span>
+                        <span class="model-status" :class="model.statusClass">
+                          <el-icon v-if="model.statusIcon"><component :is="model.statusIcon" /></el-icon>
+                          <span>{{ model.statusText }}</span>
+                        </span>
+                      </div>
+                    </el-option>
+                  </el-select>
+                </div>
+
+                <div class="form-group">
+                  <label class="form-label">生成模式</label>
+                  <el-select
+                    v-model="videoMode"
+                    class="model-selector"
+                    placeholder="选择视频生成模式"
+                  >
+                    <el-option label="文生视频" value="text" />
+                    <el-option label="首帧生视频" value="first_frame" />
+                    <el-option label="首尾帧生视频" value="first_last_frame" />
+                    <el-option label="多模态参考（含视频编辑/延长）" value="multimodal" />
+                  </el-select>
+                </div>
+
+                <div class="form-group">
+                  <label class="form-label">视频描述 Prompt</label>
+                  <el-input
+                    v-model="videoPrompt"
+                    type="textarea"
+                    :rows="4"
+                    :placeholder="videoPromptPlaceholder"
+                    class="prompt-input"
+                  />
+                </div>
+
+                <div v-if="videoMode === 'first_frame'" class="form-group">
+                  <div class="upload-header">
+                    <label class="form-label">首帧图片</label>
+                    <el-icon class="clear-icon" @click="clearVideoFirstFrame"><RefreshLeft /></el-icon>
+                  </div>
+
+                  <MultiImageUpload
+                    :files="videoFirstFrameFiles"
+                    accept="image/*"
+                    upload-text="Upload First Frame"
+                    preview-mode="image"
+                    :max-count="1"
+                    @files-change="handleVideoFirstFrameFilesChange"
+                  />
+                </div>
+
+                <template v-if="videoMode === 'first_last_frame'">
+                  <div class="form-group">
+                    <div class="upload-header">
+                      <label class="form-label">首帧图片</label>
+                      <el-icon class="clear-icon" @click="clearVideoFirstFrame"><RefreshLeft /></el-icon>
+                    </div>
+
+                    <MultiImageUpload
+                      :files="videoFirstFrameFiles"
+                      accept="image/*"
+                      upload-text="Upload First Frame"
+                      preview-mode="image"
+                      :max-count="1"
+                      @files-change="handleVideoFirstFrameFilesChange"
+                    />
+                  </div>
+
+                  <div class="form-group">
+                    <div class="upload-header">
+                      <label class="form-label">尾帧图片</label>
+                      <el-icon class="clear-icon" @click="clearVideoLastFrame"><RefreshLeft /></el-icon>
+                    </div>
+
+                    <MultiImageUpload
+                      :files="videoLastFrameFiles"
+                      accept="image/*"
+                      upload-text="Upload Last Frame"
+                      preview-mode="image"
+                      :max-count="1"
+                      @files-change="handleVideoLastFrameFilesChange"
+                    />
+                  </div>
+                </template>
+
+                <template v-if="videoMode === 'multimodal'">
+                  <div class="form-group">
+                    <div class="upload-header">
+                      <label class="form-label">参考图片（0-9）</label>
+                      <el-icon class="clear-icon" @click="clearVideoReferenceImages"><RefreshLeft /></el-icon>
+                    </div>
+
+                    <MultiImageUpload
+                      :files="videoReferenceFiles"
+                      accept="image/*"
+                      upload-text="Upload Reference Images"
+                      preview-mode="image"
+                      :max-count="9"
+                      @files-change="handleVideoReferenceFilesChange"
+                    />
+                  </div>
+
+                  <div class="form-group">
+                    <div class="upload-header">
+                      <label class="form-label">参考视频（0-3）</label>
+                      <el-icon class="clear-icon" @click="clearVideoReferenceVideos"><RefreshLeft /></el-icon>
+                    </div>
+
+                    <MultiImageUpload
+                      :files="videoReferenceVideoFiles"
+                      accept="video/mp4,video/quicktime"
+                      upload-text="Upload Reference Videos"
+                      preview-mode="video"
+                      :max-count="3"
+                      @files-change="handleVideoReferenceVideoFilesChange"
+                    />
+                  </div>
+
+                  <div class="form-group">
+                    <div class="upload-header">
+                      <label class="form-label">参考音频（0-3）</label>
+                      <el-icon class="clear-icon" @click="clearVideoReferenceAudios"><RefreshLeft /></el-icon>
+                    </div>
+
+                    <MultiImageUpload
+                      :files="videoReferenceAudioFiles"
+                      accept="audio/mpeg,audio/mp3,audio/wav"
+                      upload-text="Upload Reference Audios"
+                      preview-mode="file"
+                      :max-count="3"
+                      @files-change="handleVideoReferenceAudioFilesChange"
+                    />
+                  </div>
+                </template>
+
+                <div class="form-group">
+                  <label class="form-label">输出参数</label>
+                  <div class="video-options-grid">
+                    <el-select v-model="videoSettings.resolution" placeholder="分辨率">
+                      <el-option label="480p" value="480p" />
+                      <el-option label="720p" value="720p" />
+                    </el-select>
+                    <el-select v-model="videoSettings.ratio" placeholder="宽高比">
+                      <el-option label="adaptive" value="adaptive" />
+                      <el-option label="16:9" value="16:9" />
+                      <el-option label="4:3" value="4:3" />
+                      <el-option label="1:1" value="1:1" />
+                      <el-option label="3:4" value="3:4" />
+                      <el-option label="9:16" value="9:16" />
+                      <el-option label="21:9" value="21:9" />
+                    </el-select>
+                    <el-select v-model="videoSettings.duration" placeholder="时长">
+                      <el-option label="自动 (-1)" :value="-1" />
+                      <el-option
+                        v-for="seconds in videoDurationOptions"
+                        :key="seconds"
+                        :label="`${seconds} 秒`"
+                        :value="seconds"
+                      />
+                    </el-select>
+                    <el-input-number
+                      v-model="videoSettings.seed"
+                      :min="-1"
+                      :max="4294967295"
+                      :step="1"
+                      controls-position="right"
+                    />
+                  </div>
+                  <div class="video-option-switches">
+                    <el-switch v-model="videoSettings.generateAudio" active-text="生成有声视频" />
+                    <el-switch v-model="videoSettings.watermark" active-text="添加水印" />
+                  </div>
                 </div>
               </template>
             </div>
@@ -207,8 +414,8 @@ import axios from 'axios'
 import MultiImageUpload from './components/MultiImageUpload.vue'
 import BatchTaskManager from './components/BatchTaskManager.vue'
 import ApiConfigDialog from './components/ApiConfigDialog.vue'
-import { 
-  isApiConfigInitialized, 
+import {
+  isApiConfigInitialized,
   migrateOldDataFormat,
   getApiConfig,
   isApiConfigured,
@@ -241,7 +448,10 @@ axios.defaults.headers.common['X-Session-ID'] = sessionId
 function getApiKey(apiType) {
   // 优先使用新格式
   const key = getApiKeyUtil(apiType)
-  if (key && key.trim() && key.trim() !== 'your_gemini_api_key_here' && key.trim() !== 'your_doubao_api_key_here') {
+  if (key && key.trim() && 
+      key.trim() !== 'your_gemini_api_key_here' && 
+      key.trim() !== 'your_doubao_api_key_here' &&
+      key.trim() !== 'your_sora_api_key_here') {
     return key.trim()
   }
   
@@ -251,9 +461,14 @@ function getApiKey(apiType) {
     oldKey = localStorage.getItem('gemini_api_key')
   } else if (apiType === 'doubao') {
     oldKey = localStorage.getItem('doubao_api_key')
+  } else if (apiType === 'sora') {
+    oldKey = localStorage.getItem('sora_api_key')
   }
   // 如果key是空字符串、null或占位符，返回null（不再使用服务器配置）
-  if (!oldKey || !oldKey.trim() || oldKey.trim() === 'your_gemini_api_key_here' || oldKey.trim() === 'your_doubao_api_key_here') {
+  if (!oldKey || !oldKey.trim() || 
+      oldKey.trim() === 'your_gemini_api_key_here' || 
+      oldKey.trim() === 'your_doubao_api_key_here' ||
+      oldKey.trim() === 'your_sora_api_key_here') {
     return null
   }
   return oldKey.trim()
@@ -271,6 +486,8 @@ function getBaseUrl(apiType) {
     oldUrl = localStorage.getItem('gemini_base_url')
   } else if (apiType === 'doubao') {
     oldUrl = localStorage.getItem('doubao_base_url')
+  } else if (apiType === 'sora') {
+    oldUrl = localStorage.getItem('sora_base_url')
   }
   // 如果base_url是空字符串或null，返回null
   if (!oldUrl || !oldUrl.trim()) {
@@ -294,16 +511,21 @@ axios.interceptors.request.use(config => {
     apiType = config.params.api_type
   }
   
+  console.log('[API Debug] apiType:', apiType)
+  
   const apiKey = getApiKey(apiType)
+  console.log('[API Debug] apiKey for', apiType, ':', apiKey ? '存在' : '不存在')
+  
   // 必须提供API key，不再使用服务器配置
-  if (!apiKey || !apiKey.trim() || apiKey.trim() === 'your_gemini_api_key_here' || apiKey.trim() === 'your_doubao_api_key_here') {
-    const apiName = apiType === 'gemini' ? 'Gemini' : '豆包'
+  if (!apiKey || !apiKey.trim() || apiKey.trim() === 'your_gemini_api_key_here' || apiKey.trim() === 'your_doubao_api_key_here' || apiKey.trim() === 'your_sora_api_key_here') {
+    const apiName = apiType === 'gemini' ? 'Gemini' : apiType === 'sora' ? 'Sora' : '豆包'
+    console.error(`[API Debug] ${apiName} API Key 未配置或无效`)
     ElMessage.error(`请先配置 ${apiName} API Key 才能使用`)
     return Promise.reject(new Error(`${apiName} API Key 未配置`))
   }
   config.headers['X-API-Key'] = apiKey.trim()
   config.headers['X-API-Type'] = apiType
-  
+
   // 添加 base_url（如果存在）
   const baseUrl = getBaseUrl(apiType)
   if (baseUrl) {
@@ -311,15 +533,19 @@ axios.interceptors.request.use(config => {
       config.headers['X-Gemini-Base-URL'] = baseUrl
     } else if (apiType === 'doubao') {
       config.headers['X-Doubao-Base-URL'] = baseUrl
+    } else if (apiType === 'sora') {
+      config.headers['X-Sora-Base-URL'] = baseUrl
     }
   }
-  
+
   // 如果是 FormData，也添加 base_url 到 formData
   if (config.data instanceof FormData && baseUrl) {
     if (apiType === 'gemini') {
       config.data.append('gemini_base_url', baseUrl)
     } else if (apiType === 'doubao') {
       config.data.append('doubao_base_url', baseUrl)
+    } else if (apiType === 'sora') {
+      config.data.append('sora_base_url', baseUrl)
     }
   }
   
@@ -414,30 +640,63 @@ export default {
     const activeTab = ref('generate') // 默认选中批量生图
     const selectedModel = ref('gemini-2.5-flash-image') // 默认模型
     
-    // 所有模型列表（包含完整信息）
-    const allModelsList = [
-      { 
-        value: 'gemini-2.5-flash-image', 
+    // 图片模型列表
+    const imageModelsList = [
+      {
+        value: 'gemini-2.5-flash-image',
         label: 'Gemini 2.5 Flash Image',
         apiType: 'gemini'
       },
-      { 
-        value: 'gemini-3-pro-image-preview', 
+      {
+        value: 'gemini-3-pro-image-preview',
         label: 'Gemini 3 Pro Image Preview',
         apiType: 'gemini'
       },
-      { 
-        value: 'doubao-seedream-4-0-250828', 
+      {
+        value: 'doubao-seedream-4-0-250828',
         label: '豆包 Seedream 4.0',
         apiType: 'doubao'
       }
     ]
+
+    // 视频模型列表
+    const videoModelsList = [
+      {
+        value: 'doubao-seedance-2-0-260128',
+        label: '豆包 Seedance 2.0',
+        apiType: 'doubao'
+      },
+      {
+        value: 'doubao-seedance-2-0-fast-260128',
+        label: '豆包 Seedance 2.0 Fast',
+        apiType: 'doubao'
+      }
+    ]
+
+    // 视频生成相关状态
+    const videoReferenceFiles = ref([])
+    const videoReferenceVideoFiles = ref([])
+    const videoReferenceAudioFiles = ref([])
+    const videoFirstFrameFiles = ref([])
+    const videoLastFrameFiles = ref([])
+    const videoPrompt = ref('')
+    const videoMode = ref('text')
+    const selectedVideoModel = ref('doubao-seedance-2-0-260128')
+    const videoSettings = ref({
+      resolution: '720p',
+      ratio: 'adaptive',
+      duration: 5,
+      seed: -1,
+      watermark: false,
+      generateAudio: true
+    })
+    const videoDurationOptions = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
     
-    // 可用模型列表（计算属性，根据已配置API动态过滤）
-    const availableModels = computed(() => {
+    // 可用图片模型列表（计算属性，根据已配置API动态过滤）
+    const availableImageModels = computed(() => {
       // 依赖 apiConfigVersion 来触发更新
       apiConfigVersion.value // 读取以建立依赖
-      return allModelsList.map(model => {
+      return imageModelsList.map(model => {
         const configured = isApiConfigured(model.apiType)
         return {
           ...model,
@@ -449,10 +708,77 @@ export default {
       })
     })
 
+    // 可用视频模型列表（计算属性，根据已配置API动态过滤）
+    const availableVideoModels = computed(() => {
+      // 依赖 apiConfigVersion 来触发更新
+      apiConfigVersion.value // 读取以建立依赖
+      return videoModelsList.map(model => {
+        const configured = isApiConfigured(model.apiType)
+        return {
+          ...model,
+          disabled: !configured,
+          statusClass: configured ? 'status-configured' : 'status-not-configured',
+          statusIcon: configured ? Check : Warning,
+          statusText: configured ? '已配置' : '未配置'
+        }
+      })
+    })
+
+    // 当前可用的模型列表（根据tab切换）
+    const availableModels = computed(() => {
+      if (activeTab.value === 'video') {
+        return availableVideoModels.value
+      }
+      return availableImageModels.value
+    })
+
+    // Tab描述计算属性
+    const activeTabDescription = computed(() => {
+      switch (activeTab.value) {
+        case 'generate':
+          return '批量生图会用同一份提示词（可带参考图）重复生成多张图'
+        case 'edit':
+          return '批量改图会对多张图用同一份提示词来生图'
+        case 'video':
+          return '视频生成支持文生、首帧、首尾帧、多模态参考，以及参考视频驱动的视频编辑/延长'
+        default:
+          return ''
+      }
+    })
+
+    const videoPromptPlaceholder = computed(() => {
+      if (videoMode.value === 'text') {
+        return '输入视频描述，例如：一只小猫在阳光下抬头眨眼，镜头轻微推进，真实摄影风格'
+      }
+      if (videoMode.value === 'multimodal') {
+        return '可选。可结合 [图1] / [视频1] / [音频1] 描述参考素材的作用，用于编辑或延长视频'
+      }
+      return '可选。上传参考素材后，可用提示词进一步约束动作、镜头和风格'
+    })
+
     // 计算属性：开始按钮是否禁用
     const isStartButtonDisabled = computed(() => {
+      if (activeTab.value === 'video') {
+        if (videoMode.value === 'text') {
+          return !videoPrompt.value.trim()
+        }
+        if (videoMode.value === 'first_frame') {
+          return videoFirstFrameFiles.value.length === 0
+        }
+        if (videoMode.value === 'first_last_frame') {
+          return videoFirstFrameFiles.value.length === 0 || videoLastFrameFiles.value.length === 0
+        }
+        if (videoMode.value === 'multimodal') {
+          const hasMedia = videoReferenceFiles.value.length > 0 ||
+            videoReferenceVideoFiles.value.length > 0
+          const hasAudioOnly = videoReferenceAudioFiles.value.length > 0 && !hasMedia
+          if (hasAudioOnly) return true
+          return !hasMedia && !videoPrompt.value.trim()
+        }
+        return false
+      }
       if (!batchPrompt.value.trim()) return true
-      
+
       if (activeTab.value === 'generate') {
         // 批量生图：只需要prompt，参考图可选
         return false
@@ -465,6 +791,52 @@ export default {
     // 处理批量改图文件变化
     const handleBatchFileChange = (files) => {
       uploadedFiles.value = files
+    }
+
+    // 视频生成参考图处理（多图）
+    const handleVideoReferenceFilesChange = (files) => {
+      videoReferenceFiles.value = files
+    }
+
+    const handleVideoReferenceVideoFilesChange = (files) => {
+      videoReferenceVideoFiles.value = files
+    }
+
+    const handleVideoReferenceAudioFilesChange = (files) => {
+      videoReferenceAudioFiles.value = files
+    }
+
+    const handleVideoFirstFrameFilesChange = (files) => {
+      videoFirstFrameFiles.value = files
+    }
+
+    const handleVideoLastFrameFilesChange = (files) => {
+      videoLastFrameFiles.value = files
+    }
+
+    const clearVideoReferenceImages = () => {
+      videoReferenceFiles.value = []
+      ElMessage.success('已清空所有参考图')
+    }
+
+    const clearVideoReferenceVideos = () => {
+      videoReferenceVideoFiles.value = []
+      ElMessage.success('已清空所有参考视频')
+    }
+
+    const clearVideoReferenceAudios = () => {
+      videoReferenceAudioFiles.value = []
+      ElMessage.success('已清空所有参考音频')
+    }
+
+    const clearVideoFirstFrame = () => {
+      videoFirstFrameFiles.value = []
+      ElMessage.success('已清空首帧图片')
+    }
+
+    const clearVideoLastFrame = () => {
+      videoLastFrameFiles.value = []
+      ElMessage.success('已清空尾帧图片')
     }
 
     // 处理批量生图参考图变化
@@ -604,16 +976,29 @@ export default {
       // 等待一下让localStorage更新完成
       setTimeout(() => {
         // 检查当前选择的模型是否仍然可用
-        const apiType = getApiTypeFromModelName(selectedModel.value)
-        if (!isApiConfigured(apiType)) {
-          // 当前模型不可用，切换到第一个可用模型
-          const firstAvailable = availableModels.value.find(m => !m.disabled)
-          if (firstAvailable) {
-            selectedModel.value = firstAvailable.value
-            ElMessage.info(`已自动切换到 ${firstAvailable.label}`)
-          } else {
-            // 如果没有可用模型，提示用户
-            ElMessage.warning('请至少配置一个 API 才能使用')
+        if (activeTab.value === 'video') {
+          const videoApiType = getApiTypeFromModelName(selectedVideoModel.value)
+          if (!isApiConfigured(videoApiType)) {
+            const firstAvailableVideo = availableVideoModels.value.find(model => !model.disabled)
+            if (firstAvailableVideo) {
+              selectedVideoModel.value = firstAvailableVideo.value
+            } else {
+              ElMessage.warning('请至少配置一个视频模型 API 才能使用视频生成功能')
+            }
+          }
+        } else {
+          // 检查图片模型
+          const apiType = getApiTypeFromModelName(selectedModel.value)
+          if (!isApiConfigured(apiType)) {
+            // 当前模型不可用，切换到第一个可用模型
+            const firstAvailable = availableImageModels.value.find(m => !m.disabled)
+            if (firstAvailable) {
+              selectedModel.value = firstAvailable.value
+              ElMessage.info(`已自动切换到 ${firstAvailable.label}`)
+            } else {
+              // 如果没有可用模型，提示用户
+              ElMessage.warning('请至少配置一个 API 才能使用')
+            }
           }
         }
       }, 100)
@@ -622,23 +1007,45 @@ export default {
     // 处理模型切换
     const handleModelChange = (modelValue) => {
       const apiType = getApiTypeFromModelName(modelValue)
-      
+
       // 检查对应API是否已配置
       if (!isApiConfigured(apiType)) {
         // 未配置，显示提示并打开配置对话框
-        ElMessage.warning(`请先配置 ${apiType === 'gemini' ? 'Gemini' : '豆包'} API`)
+        ElMessage.warning(`请先配置 ${apiType === 'gemini' ? 'Gemini' : apiType === 'doubao' ? '豆包' : 'Sora'} API`)
         highlightApiType.value = apiType
-        
+
         // 恢复之前的选择（在打开对话框之前）
-        const previousModel = allModelsList.find(m => {
+        const previousModel = imageModelsList.find(m => {
           const prevApiType = getApiTypeFromModelName(m.value)
           return isApiConfigured(prevApiType) && m.value !== modelValue
         })
         if (previousModel) {
           selectedModel.value = previousModel.value
         }
-        
+
         // 打开配置对话框
+        showApiConfigDialog.value = true
+      } else {
+        highlightApiType.value = null
+      }
+    }
+
+    // 处理视频模型切换
+    const handleVideoModelChange = (modelValue) => {
+      const apiType = getApiTypeFromModelName(modelValue)
+
+      // 检查对应API是否已配置
+      if (!isApiConfigured(apiType)) {
+        const apiName = apiType === 'sora' ? 'Sora' : '豆包'
+        ElMessage.warning(`请先配置 ${apiName} API`)
+        highlightApiType.value = apiType
+        const previousModel = videoModelsList.find(model => {
+          return model.value !== modelValue && isApiConfigured(model.apiType)
+        })
+        if (previousModel) {
+          selectedVideoModel.value = previousModel.value
+        }
+
         showApiConfigDialog.value = true
       } else {
         highlightApiType.value = null
@@ -698,24 +1105,30 @@ export default {
       console.log('selectedModel:', selectedModel.value)
       console.log('batchPrompt:', batchPrompt.value)
       console.log('isBatchGenerating:', isBatchGenerating.value)
+
+      if (activeTab.value === 'video') {
+        await handleVideoGenerate()
+        return
+      }
+
       // 检查 API Key 是否已配置
       if (!checkApiKeyConfigured()) {
         ElMessage.warning('请先配置 API Key 后再生成图片')
         showApiConfigDialog.value = true
         return
       }
-      
+
       // 计算图片数量
-      const count = activeTab.value === 'generate' 
+      const count = activeTab.value === 'generate'
         ? (hasVariables.value ? totalVariableCombinations.value : imageCount.value)
         : uploadedFiles.value.length
-      
+
       if (activeTab.value === 'generate') {
         await handleBatchGenerate()
       } else {
         await handleBatchEdit()
       }
-      
+
       // 已移除积分体系，无需刷新用户信息
     }
 
@@ -958,13 +1371,124 @@ export default {
       }
     }
 
+    // 视频生成处理
+    const handleVideoGenerate = async () => {
+      if (videoMode.value === 'text' && !videoPrompt.value.trim()) {
+        ElMessage.warning('文生视频需要输入视频描述')
+        return
+      }
+      if (videoMode.value === 'first_frame' && videoFirstFrameFiles.value.length === 0) {
+        ElMessage.warning('请上传首帧图片')
+        return
+      }
+      if (videoMode.value === 'first_last_frame' && (
+        videoFirstFrameFiles.value.length === 0 || videoLastFrameFiles.value.length === 0
+      )) {
+        ElMessage.warning('请上传首帧和尾帧图片')
+        return
+      }
+      if (videoMode.value === 'multimodal') {
+        const hasMedia = videoReferenceFiles.value.length > 0 || videoReferenceVideoFiles.value.length > 0
+        if (videoReferenceAudioFiles.value.length > 0 && !hasMedia) {
+          ElMessage.warning('参考音频不能单独上传，请至少补充参考图片或参考视频')
+          return
+        }
+        if (!hasMedia && !videoPrompt.value.trim()) {
+          ElMessage.warning('请提供提示词或参考素材')
+          return
+        }
+      }
+
+      const videoApiType = getApiTypeFromModelName(selectedVideoModel.value)
+      if (!isApiConfigured(videoApiType)) {
+        const apiName = videoApiType === 'sora' ? 'Sora' : '豆包'
+        ElMessage.warning(`请先配置 ${apiName} API Key 才能生成视频`)
+        highlightApiType.value = videoApiType
+        showApiConfigDialog.value = true
+        return
+      }
+
+      isBatchGenerating.value = true
+
+      try {
+        // 先创建本地任务对象
+        const items = [{
+          index: 0,
+          prompt: videoPrompt.value,
+          status: 'pending',
+          is_video: true
+        }]
+        createAndSetLocalTask(items)
+
+        const formData = new FormData()
+
+        // 添加提示词
+        formData.append('prompt', videoPrompt.value)
+        // 根据选择的模型确定 api_type
+        formData.append('api_type', videoApiType)
+        formData.append('model_name', selectedVideoModel.value)
+        formData.append('video_mode', videoMode.value)
+        formData.append('resolution', videoSettings.value.resolution)
+        formData.append('ratio', videoSettings.value.ratio)
+        formData.append('duration', String(videoSettings.value.duration))
+        formData.append('seed', String(videoSettings.value.seed))
+        formData.append('watermark', String(videoSettings.value.watermark))
+        formData.append('generate_audio', String(videoSettings.value.generateAudio))
+
+        if (videoMode.value === 'first_frame') {
+          if (videoFirstFrameFiles.value[0]) {
+            formData.append('first_frame_file', videoFirstFrameFiles.value[0].file)
+          }
+        } else if (videoMode.value === 'first_last_frame') {
+          if (videoFirstFrameFiles.value[0]) {
+            formData.append('first_frame_file', videoFirstFrameFiles.value[0].file)
+          }
+          if (videoLastFrameFiles.value[0]) {
+            formData.append('last_frame_file', videoLastFrameFiles.value[0].file)
+          }
+        } else if (videoMode.value === 'multimodal') {
+          videoReferenceFiles.value.forEach(fileObj => {
+            formData.append('reference_image_files', fileObj.file)
+          })
+          videoReferenceVideoFiles.value.forEach(fileObj => {
+            formData.append('reference_video_files', fileObj.file)
+          })
+          videoReferenceAudioFiles.value.forEach(fileObj => {
+            formData.append('reference_audio_files', fileObj.file)
+          })
+        }
+
+        const response = await axios.post('/api/batch/generate-video', formData, {
+          headers: {
+            'Content-Type': 'multipart/form-data'
+          },
+          timeout: 300000 // 视频生成时间可能较长，设置为5分钟
+        })
+
+        if (response.data.success) {
+          // 用后端返回的真实task_id更新本地任务
+          if (taskManagerRef.value && taskManagerRef.value.updateLocalTaskId && response.data.task_id) {
+            taskManagerRef.value.updateLocalTaskId(response.data.task_id)
+          }
+          ElMessage.success('视频生成任务已创建')
+        } else {
+          ElMessage.error('创建视频生成任务失败: ' + response.data.error)
+        }
+      } catch (error) {
+        console.error('视频生成错误:', error)
+        ElMessage.error('视频生成失败: ' + (error.response?.data?.error || error.message))
+      } finally {
+        isBatchGenerating.value = false
+      }
+    }
+
     // 组件挂载时加载用户信息和检查首次使用
     onMounted(() => {
       // 已移除用户认证体系，无需加载用户信息
-      
+
       // 执行数据迁移（如果存在旧格式数据）
       migrateOldDataFormat()
-      
+
       // 检查是否首次使用
       const initialized = isApiConfigInitialized()
       if (!initialized) {
@@ -972,9 +1496,9 @@ export default {
         isFirstTime.value = true
         showApiConfigDialog.value = true
       } else {
-        // 检查是否有可用的模型
-        const available = availableModels.value.filter(m => !m.disabled)
-        if (available.length === 0) {
+        // 检查是否有可用的图片模型
+        const availableImage = availableImageModels.value.filter(m => !m.disabled)
+        if (availableImage.length === 0) {
           // 没有可用模型，提示配置
           ElMessage.warning('请先配置至少一个 API 才能使用')
           isFirstTime.value = true
@@ -984,7 +1508,7 @@ export default {
           const apiType = getApiTypeFromModelName(selectedModel.value)
           if (!isApiConfigured(apiType)) {
             // 当前模型不可用，切换到第一个可用模型
-            selectedModel.value = available[0].value
+            selectedModel.value = availableImage[0].value
           }
         }
       }
@@ -1032,7 +1556,33 @@ export default {
       handleModelChange,
       checkApiKeyConfigured,
       isFirstTime,
-      highlightApiType
+      highlightApiType,
+      // Tab描述
+      activeTabDescription,
+      // 视频生成相关
+      videoMode,
+      videoPrompt,
+      videoPromptPlaceholder,
+      videoReferenceFiles,
+      videoReferenceVideoFiles,
+      videoReferenceAudioFiles,
+      videoFirstFrameFiles,
+      videoLastFrameFiles,
+      videoSettings,
+      videoDurationOptions,
+      selectedVideoModel,
+      availableVideoModels,
+      handleVideoModelChange,
+      handleVideoReferenceFilesChange,
+      handleVideoReferenceVideoFilesChange,
+      handleVideoReferenceAudioFilesChange,
+      handleVideoFirstFrameFilesChange,
+      handleVideoLastFrameFilesChange,
+      clearVideoReferenceImages,
+      clearVideoReferenceVideos,
+      clearVideoReferenceAudios,
+      clearVideoFirstFrame,
+      clearVideoLastFrame
     }
   }
 }
@@ -1343,6 +1893,25 @@ html, body {
   font-size: 16px;
   color: #333333;
   cursor: pointer;
+}
+
+.video-options-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.video-option-switches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 4px;
+}
+
+.video-options-grid :deep(.el-input__wrapper),
+.video-options-grid :deep(.el-select__wrapper),
+.video-options-grid :deep(.el-input-number) {
+  width: 100%;
 }
 
 /* 开始按钮 */

@@ -479,3 +479,94 @@ def process_batch_generate_multi_prompt_sync(session_id, task_id, reference_imag
             'success': False,
             'error': str(e)
         }
+
+def process_video_generate_sync(
+    session_id,
+    task_id,
+    media_inputs,
+    prompt,
+    api_type="sora",
+    api_key=None,
+    model_name=None,
+    base_url=None,
+    duration=None,
+    options=None,
+):
+    """
+    同步处理视频生成任务
+
+    Args:
+        session_id: 会话ID
+        task_id: 任务ID
+        media_inputs: 视频生成输入素材
+        prompt: 视频生成提示词
+        api_type: API类型（'sora' 或 'doubao'）
+        api_key: API密钥
+        model_name: 模型名称
+        base_url: 自定义 base URL（可选）
+
+    Returns:
+        dict: 视频生成任务结果
+    """
+    try:
+        from task_manager import task_manager
+
+        api_name = "豆包" if api_type == "doubao" else "Sora"
+        print(f"  [视频生成任务] 使用 {api_name} API，模型: {model_name}, api_type: {api_type}, base_url: {base_url}")
+        media_summary = media_inputs if isinstance(media_inputs, dict) else {"images": media_inputs or []}
+        print(
+            "  [视频生成任务] 输入素材:"
+            f" 图片={len(media_summary.get('images', []))}"
+            f", 视频={len(media_summary.get('videos', []))}"
+            f", 音频={len(media_summary.get('audios', []))}"
+            f", 模式={media_summary.get('mode', 'legacy')}"
+        )
+
+        # 更新进度
+        task_manager.update_task_progress(session_id, task_id, 10, 0)
+
+        # 使用视频生成器
+        from video_generator import create_video_generator
+        generator = create_video_generator(api_type, api_key, model_name, base_url)
+
+        # 更新进度
+        task_manager.update_task_progress(session_id, task_id, 30, 0)
+
+        # 生成视频
+        print(f"  [视频生成任务] 开始生成视频...")
+        result = generator.generate(prompt, media_inputs=media_inputs, options=options, duration=duration)
+        print(f"  [视频生成任务] 生成结果: success={result.get('success')}, error={result.get('error', 'N/A')}")
+
+        # 更新进度
+        task_manager.update_task_progress(session_id, task_id, 90, 1)
+
+        filename = "video_1.mp4"
+
+        # 添加文件名信息
+        result['filename'] = filename
+        result['is_video'] = True
+        result['prompt'] = prompt
+
+        # 更新任务结果
+        task_manager.add_task_result(session_id, task_id, filename, result)
+
+        # 更新进度为100%
+        task_manager.update_task_progress(session_id, task_id, 100, 1)
+
+        return {
+            'success': result.get('success', False),
+            'task_id': task_id,
+            'results': [result],
+            'total_videos': 1,
+            'completed_videos': 1,
+            'error': result.get('error')
+        }
+
+    except Exception as e:
+        print(f"Error processing video generate sync: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return {
+            'success': False,
+            'error': str(e)
+        }
