@@ -4,6 +4,7 @@ from werkzeug.utils import secure_filename
 import os
 import uuid
 import sys
+import threading
 import redis
 import base64
 from google import genai
@@ -112,6 +113,78 @@ def encode_uploaded_files_as_data_urls(field_name, allowed_extensions, mime_pref
         encoded_values.append(f"data:{mime_prefix}/{extension};base64,{encoded}")
 
     return encoded_values
+
+
+def run_video_generate_task(
+    session_id,
+    task_id,
+    media_inputs,
+    prompt,
+    api_type,
+    api_key,
+    model_name,
+    base_url,
+    duration,
+    video_options,
+):
+    """在后台线程中执行视频生成并更新任务状态"""
+    try:
+        from tasks import process_video_generate_sync
+
+        result = process_video_generate_sync(
+            session_id,
+            task_id,
+            media_inputs,
+            prompt,
+            api_type,
+            api_key,
+            model_name,
+            base_url,
+            duration,
+            video_options
+        )
+
+        if result.get('success'):
+            task_manager.update_task_status(session_id, task_id, TaskStatus.COMPLETED)
+            return
+
+        task_manager.update_task_status(session_id, task_id, TaskStatus.FAILED)
+    except Exception as e:
+        app.logger.error(f"Video generation background task error: {str(e)}")
+        task_manager.update_task_status(session_id, task_id, TaskStatus.FAILED)
+
+
+def start_video_generate_task(
+    session_id,
+    task_id,
+    media_inputs,
+    prompt,
+    api_type,
+    api_key,
+    model_name,
+    base_url,
+    duration,
+    video_options,
+):
+    """启动后台视频生成任务"""
+    thread = threading.Thread(
+        target=run_video_generate_task,
+        args=(
+            session_id,
+            task_id,
+            media_inputs,
+            prompt,
+            api_type,
+            api_key,
+            model_name,
+            base_url,
+            duration,
+            video_options,
+        ),
+        daemon=True
+    )
+    thread.start()
+    return thread
 
 def generate_image_with_gemini(image_path, prompt, api_key=None):
     """使用Gemini API生成图片（已废弃，现在使用AIImageGenerator）"""
@@ -784,11 +857,9 @@ def create_video_generate_task():
         base_url = get_base_url_from_request(api_type)
         print(f"    base_url: {base_url}")
 
-        # 同步处理视频生成
         try:
-            print(f"  开始处理视频生成任务...")
-            from tasks import process_video_generate_sync
-            result = process_video_generate_sync(
+            print("  启动后台视频生成任务...")
+            start_video_generate_task(
                 session_id,
                 task_id,
                 media_inputs,
@@ -800,15 +871,10 @@ def create_video_generate_task():
                 duration,
                 video_options
             )
-            print(f"  处理结果: success={result.get('success')}")
-
-            if result['success']:
-                task_manager.update_task_status(session_id, task_id, TaskStatus.COMPLETED)
-            else:
-                task_manager.update_task_status(session_id, task_id, TaskStatus.FAILED)
         except Exception as e:
-            app.logger.error(f"Video generation processing error: {str(e)}")
+            app.logger.error(f"Video generation task start error: {str(e)}")
             task_manager.update_task_status(session_id, task_id, TaskStatus.FAILED)
+            return jsonify({'success': False, 'error': f'启动视频任务失败: {str(e)}'}), 500
 
         return jsonify({
             'success': True,

@@ -1471,7 +1471,7 @@ export default {
           if (taskManagerRef.value && taskManagerRef.value.updateLocalTaskId && response.data.task_id) {
             taskManagerRef.value.updateLocalTaskId(response.data.task_id)
           }
-          ElMessage.success('视频生成任务已创建')
+          ElMessage.success('视频生成任务已提交')
         } else {
           ElMessage.error('创建视频生成任务失败: ' + response.data.error)
         }

@@ -12,6 +12,40 @@ from tasks import process_video_generate_sync
 
 
 class DoubaoVideoGeneratorTests(unittest.TestCase):
+    def test_generate_video_route_starts_background_task_and_returns_task_id(self):
+        from backend.app import app
+
+        client = app.test_client()
+        task_data = {
+            "task_id": "task-123",
+            "items": [{"index": 0, "prompt": "make video", "status": "pending", "is_video": True}],
+        }
+
+        with patch("backend.app.task_manager.create_task", return_value=("task-123", task_data)):
+            with patch("backend.app.task_manager.update_task_status") as mock_update_status:
+                with patch("backend.app.start_video_generate_task") as mock_start_task:
+                    response = client.post(
+                        "/api/batch/generate-video",
+                        data={
+                            "prompt": "make video",
+                            "api_type": "doubao",
+                            "model_name": "doubao-seedance-2-0-260128",
+                            "video_mode": "text",
+                        },
+                        headers={
+                            "X-Session-ID": "session-123",
+                            "X-API-Key": "key-123",
+                            "X-API-Type": "doubao",
+                        },
+                    )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["task_id"], "task-123")
+        mock_start_task.assert_called_once()
+        mock_update_status.assert_called()
+
     def test_generate_uses_current_ark_task_endpoint_and_default_model(self):
         generator = DoubaoVideoGenerator("test-key", None)
         mock_response = Mock()
