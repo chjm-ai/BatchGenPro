@@ -484,5 +484,393 @@ def test_apis():
     doubao_result = doubao_gen.generate_image(image_data, "添加一朵花")
     print(json.dumps(doubao_result, indent=2, ensure_ascii=False))
 
+class AIVideoGenerator:
+    """AI视频生成器（支持 Sora 和豆包 Seedance）"""
+
+    def __init__(self, api_type="sora", api_key=None, model_name=None, base_url=None):
+        self.api_type = api_type
+        self.result_folder = RESULT_FOLDER
+        self.api_key = api_key
+        self.model = model_name or "sora-2"
+
+        # 根据 API 类型设置 base_url 默认值
+        if api_type == "doubao":
+            # 豆包使用火山方舟 API
+            self.base_url = base_url or "https://ark.cn-beijing.volces.com/api/v3"
+        else:
+            # Sora 使用 yunwu.ai
+            self.base_url = base_url or "https://yunwu.ai"
+
+        # 确保结果目录存在
+        os.makedirs(self.result_folder, exist_ok=True)
+
+        # 验证API key
+        if not api_key or not api_key.strip():
+            api_name = "豆包" if api_type == "doubao" else "Sora"
+            raise ValueError(f"{api_name} API Key 未提供，请先在设置中配置 API Key")
+
+    def generate_video(self, image_urls, prompt):
+        """生成视频"""
+        if self.api_type == "doubao":
+            return self._generate_video_doubao(image_urls, prompt)
+        else:
+            return self._generate_video_sora(image_urls, prompt)
+
+    def _generate_video_sora(self, image_urls, prompt):
+        """使用 Sora API 生成视频"""
+        try:
+            print(f"  [Sora] 开始生成视频，prompt: {prompt[:50]}...")
+            print(f"  [Sora] 参考图片数量: {len(image_urls) if image_urls else 0}")
+
+            model_name = self.model if self.model and self.model.strip() else "sora-2-all"
+            request_data = {
+                "model": model_name,
+                "prompt": prompt,
+                "orientation": "portrait",
+                "size": "large",
+                "duration": 10,
+                "watermark": False
+            }
+
+            if image_urls and len(image_urls) > 0:
+                request_data["images"] = image_urls
+                print(f"  [Sora] 已添加 {len(image_urls)} 张参考图片")
+
+            endpoint = f"{self.base_url}/v1/video/create"
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+            }
+
+            print(f"  [Sora] 发送请求到: {endpoint}")
+            
+            response = requests.post(
+                endpoint,
+                headers=headers,
+                json=request_data,
+                timeout=300
+            )
+
+            print(f"  [Sora] 响应状态: {response.status_code}")
+            
+            if response.status_code == 200:
+                result = response.json()
+                return self._process_sora_response(result, prompt)
+            else:
+                error_msg = f"Sora API请求失败: {response.status_code}"
+                try:
+                    error_data = response.json()
+                    if "error" in error_data:
+                        error_msg = f"{error_msg} - {error_data['error']}"
+                    elif "message" in error_data:
+                        error_msg = f"{error_msg} - {error_data['message']}"
+                except:
+                    error_msg = f"{error_msg} - {response.text}"
+
+                print(f"  [Sora] 请求失败: {error_msg}")
+                return {
+                    "success": False,
+                    "error": error_msg,
+                    "api_type": "sora"
+                }
+
+        except requests.exceptions.Timeout:
+            print(f"  [Sora] 请求超时")
+            return {
+                "success": False,
+                "error": "Sora API请求超时，视频生成可能需要更长时间，请稍后查看任务状态",
+                "api_type": "sora"
+            }
+        except Exception as e:
+            print(f"  [Sora] 生成视频时发生错误: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return {
+                "success": False,
+                "error": f"生成视频失败: {str(e)}",
+                "api_type": "sora"
+            }
+
+    def _generate_video_doubao(self, image_urls, prompt):
+        """使用豆包 Seedance API 生成视频"""
+        try:
+            print(f"  [Seedance] 开始生成视频，prompt: {prompt[:50]}...")
+            print(f"  [Seedance] 参考图片数量: {len(image_urls) if image_urls else 0}")
+
+            # 构建请求数据 - 火山方舟 Seedance API 格式
+            model_name = self.model if self.model and self.model.strip() else "seedance-1.5-pro"
+            
+            # 准备内容（文本 + 图片）
+            content = []
+            
+            # 添加参考图片
+            if image_urls and len(image_urls) > 0:
+                for url in image_urls:
+                    content.append({
+                        "type": "image_url",
+                        "image_url": {"url": url}
+                    })
+            
+            # 添加文本提示词
+            content.append({
+                "type": "text",
+                "text": prompt
+            })
+            
+            request_data = {
+                "model": model_name,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": content
+                    }
+                ]
+            }
+
+            endpoint = f"{self.base_url}/chat/completions"
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json"
+            }
+
+            print(f"  [Seedance] 发送请求到: {endpoint}")
+            
+            response = requests.post(
+                endpoint,
+                headers=headers,
+                json=request_data,
+                timeout=300
+            )
+
+            print(f"  [Seedance] 响应状态: {response.status_code}")
+            
+            if response.status_code == 200:
+                result = response.json()
+                return self._process_doubao_video_response(result, prompt)
+            else:
+                error_msg = f"Seedance API请求失败: {response.status_code}"
+                try:
+                    error_data = response.json()
+                    if "error" in error_data:
+                        error_msg = f"{error_msg} - {error_data['error']}"
+                    elif "message" in error_data:
+                        error_msg = f"{error_msg} - {error_data['message']}"
+                except:
+                    error_msg = f"{error_msg} - {response.text}"
+
+                print(f"  [Seedance] 请求失败: {error_msg}")
+                return {
+                    "success": False,
+                    "error": error_msg,
+                    "api_type": "doubao"
+                }
+
+        except requests.exceptions.Timeout:
+            print(f"  [Seedance] 请求超时")
+            return {
+                "success": False,
+                "error": "Seedance API请求超时，视频生成可能需要更长时间，请稍后查看任务状态",
+                "api_type": "doubao"
+            }
+        except Exception as e:
+            print(f"  [Seedance] 生成视频时发生错误: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return {
+                "success": False,
+                "error": f"生成视频失败: {str(e)}",
+                "api_type": "doubao"
+            }
+
+    def _process_doubao_video_response(self, response_data, prompt):
+        """处理豆包 Seedance API 响应"""
+        try:
+            print(f"  [Seedance] 处理响应: {response_data}")
+            
+            # 火山方舟 API 返回标准 OpenAI 格式
+            if "choices" in response_data and len(response_data["choices"]) > 0:
+                choice = response_data["choices"][0]
+                message = choice.get("message", {})
+                content = message.get("content", "")
+                
+                # 解析 content 中的视频 URL（通常是 JSON 格式）
+                try:
+                    content_data = json.loads(content)
+                    if "video_url" in content_data:
+                        return self._save_sora_video(content_data["video_url"], prompt)
+                    elif "url" in content_data:
+                        return self._save_sora_video(content_data["url"], prompt)
+                except json.JSONDecodeError:
+                    # content 不是 JSON，可能是直接的 URL
+                    if content.startswith("http"):
+                        return self._save_sora_video(content, prompt)
+                
+                return {
+                    "success": False,
+                    "error": "无法从响应中解析视频 URL",
+                    "content": content,
+                    "api_type": "doubao"
+                }
+            
+            # 检查是否有视频 URL 直接返回
+            if "video_url" in response_data:
+                return self._save_sora_video(response_data["video_url"], prompt)
+            
+            # 检查是否有 task_id（异步任务）
+            if "id" in response_data:
+                task_id = response_data["id"]
+                print(f"  [Seedance] 视频生成任务已创建，ID: {task_id}")
+                return {
+                    "success": True,
+                    "description": f"视频生成任务已提交: {prompt}",
+                    "task_id": task_id,
+                    "generated_video_url": None,
+                    "api_type": "doubao",
+                    "note": "视频生成中，请稍后刷新查看结果",
+                    "is_processing": True
+                }
+            
+            return {
+                "success": False,
+                "error": "Seedance API 响应格式异常",
+                "response": response_data,
+                "api_type": "doubao"
+            }
+            
+        except Exception as e:
+            print(f"  [Seedance] 处理响应时发生错误: {str(e)}")
+            return {
+                "success": False,
+                "error": f"处理 Seedance API 响应失败: {str(e)}",
+                "api_type": "doubao"
+            }
+
+    def _process_sora_response(self, response_data, prompt):
+        """处理Sora API响应"""
+        try:
+            # Sora API返回的视频URL或视频数据
+            if "data" in response_data and len(response_data["data"]) > 0:
+                video_info = response_data["data"][0]
+
+                if "url" in video_info:
+                    # 下载并保存视频
+                    return self._save_sora_video(video_info["url"], prompt)
+                elif "b64_json" in video_info:
+                    # Base64编码的视频数据
+                    video_bytes = base64.b64decode(video_info["b64_json"])
+                    return self._save_video_bytes(video_bytes, prompt)
+                else:
+                    return {
+                        "success": False,
+                        "error": "Sora API响应中未找到视频数据",
+                        "api_type": "sora"
+                    }
+            elif "video" in response_data:
+                # 另一种可能的响应格式
+                if isinstance(response_data["video"], dict) and "url" in response_data["video"]:
+                    return self._save_sora_video(response_data["video"]["url"], prompt)
+                elif isinstance(response_data["video"], str):
+                    # 直接是URL
+                    return self._save_sora_video(response_data["video"], prompt)
+            else:
+                # 检查是否有id字段，可能需要轮询
+                if "id" in response_data:
+                    video_id = response_data["id"]
+                    print(f"  [Sora] 视频生成任务已创建，ID: {video_id}")
+                    return {
+                        "success": True,
+                        "description": f"视频生成任务已提交: {prompt}",
+                        "video_id": video_id,
+                        "generated_video_url": None,
+                        "api_type": "sora",
+                        "note": "视频生成中，请稍后刷新查看结果",
+                        "is_processing": True
+                    }
+
+                return {
+                    "success": False,
+                    "error": "Sora API响应格式异常",
+                    "response": response_data,
+                    "api_type": "sora"
+                }
+
+        except Exception as e:
+            print(f"  [Sora] 处理响应时发生错误: {str(e)}")
+            return {
+                "success": False,
+                "error": f"处理Sora API响应失败: {str(e)}",
+                "api_type": "sora"
+            }
+
+    def _save_sora_video(self, video_url, prompt):
+        """保存Sora生成的视频"""
+        try:
+            print(f"  [Sora] 正在下载视频: {video_url[:60]}...")
+            video_response = requests.get(video_url, timeout=60)
+            if video_response.status_code == 200:
+                video_bytes = video_response.content
+                return self._save_video_bytes(video_bytes, prompt)
+            else:
+                return {
+                    "success": False,
+                    "error": f"下载视频失败: {video_response.status_code}",
+                    "api_type": "sora"
+                }
+
+        except Exception as e:
+            print(f"  [Sora] 下载视频时发生错误: {str(e)}")
+            return {
+                "success": False,
+                "error": f"下载视频失败: {str(e)}",
+                "api_type": "sora"
+            }
+
+    def _save_video_bytes(self, video_bytes, prompt):
+        """保存视频字节数据到文件"""
+        try:
+            # 生成文件名
+            generated_filename = f"sora_generated_{uuid.uuid4()}.mp4"
+            generated_path = os.path.join(self.result_folder, generated_filename)
+
+            # 保存视频
+            with open(generated_path, 'wb') as f:
+                f.write(video_bytes)
+
+            print(f"  [Sora] 视频已保存: {generated_path}")
+
+            return {
+                "success": True,
+                "description": f"成功使用Sora API生成视频: {prompt}",
+                "generated_video_url": f"/static/results/{generated_filename}",
+                "api_type": "sora",
+                "note": "视频已使用Sora API生成"
+            }
+
+        except Exception as e:
+            print(f"  [Sora] 保存视频时发生错误: {str(e)}")
+            return {
+                "success": False,
+                "error": f"保存视频失败: {str(e)}",
+                "api_type": "sora"
+            }
+
+
+def create_video_generator(api_type="sora", api_key=None, model_name=None, base_url=None):
+    """
+    创建视频生成器实例
+
+    Args:
+        api_type: API类型（固定为"sora"）
+        api_key: API密钥
+        model_name: 模型名称（固定为"sora-2"）
+        base_url: 自定义 base URL（可选）
+
+    Returns:
+        AIVideoGenerator: 视频生成器实例
+    """
+    return AIVideoGenerator(api_type, api_key, model_name, base_url)
+
+
 if __name__ == "__main__":
     test_apis()

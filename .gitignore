@@ -75,13 +75,10 @@ debug_*.py
 temp_*.py
 
 # Deployment files with sensitive information
-<<<<<<< Updated upstream
 DEPLOYMENT.md
 Docs/DEPLOYMENT.md
 nginx-batchgenpro.conf.example
-=======
-Docs/DEPLOYMENT.md
->>>>>>> Stashed changes
 docker-compose.server.yml
 deploy.sh
+!scripts/deploy.sh
 logs/

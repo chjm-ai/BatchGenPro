@@ -125,6 +125,30 @@ gemini的Base URL请填入  https://speeedai.com/v1beta/models/gemini-2.5-flash-
    docker-compose -f docker-compose.server.yml.example up -d --build
    ```
 
+### 服务器拉代码后部署
+
+仓库内提供了通用脚本 [`scripts/deploy.sh`](/Users/wesley/Desktop/Repos/BatchGenPro/scripts/deploy.sh)，不会在代码库中写死服务器 IP。
+
+使用方式：
+```bash
+chmod +x scripts/deploy.sh
+DEPLOY_HOST=你的SSH别名或服务器地址 ./scripts/deploy.sh
+```
+
+可选环境变量：
+```bash
+DEPLOY_USER=wesley
+DEPLOY_PORT=2222
+DEPLOY_BRANCH=main
+DEPLOY_APP_DIR=/srv/core/apps/batchgenpro
+DEPLOY_CORE_DIR=/srv/core
+DEPLOY_PROFILE=batchgenpro
+```
+
+脚本会在服务器上执行两步：
+1. 进入应用目录并 `git pull --ff-only`
+2. 回到 `/srv/core`，通过主 `docker compose` 重新部署 `batchgenpro` 相关服务
+
 ## 🎯 使用流程
 
 ### 批量生图
